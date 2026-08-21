@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""
+Simple Local Log Receiver
+Listens on a configurable TCP/UDP port and prints incoming log messages.
+"""
+
+import socket
+import threading
+import argparse
+from datetime import datetime
+
+
+def handle_tcp_client(conn, addr):
+    print(f"[{datetime.now()}] New TCP connection from {addr[0]}:{addr[1]}")
+    try:
+        while True:
+            data = conn.recv(4096)
+            if not data:
+                break
+            log_line = data.decode('utf-8', errors='replace').strip()
+            print(f"[{datetime.now()}] [{addr[0]}:{addr[1]}] {log_line}")
+    except ConnectionResetError:
+        print(f"[{datetime.now()}] Connection reset by {addr[0]}:{addr[1]}")
+    finally:
+        conn.close()
+        print(f"[{datetime.now()}] Connection closed from {addr[0]}:{addr[1]}")
+
+
+def start_tcp_listener(host, port):
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind((host, port))
+    server.listen(10)
+    print(f"[*] TCP Listener started on {host}:{port}")
+    try:
+        while True:
+            conn, addr = server.accept()
+            t = threading.Thread(target=handle_tcp_client, args=(conn, addr), daemon=True)
+            t.start()
+    except KeyboardInterrupt:
+        print("\n[*] TCP Listener stopped.")
+    finally:
+        server.close()
+
+
+def start_udp_listener(host, port):
+    server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server.bind((host, port))
+    print(f"[*] UDP Listener started on {host}:{port}")
+    try:
+        while True:
+            data, addr = server.recvfrom(4096)
+            log_line = data.decode('utf-8', errors='replace').strip()
+            print(f"[{datetime.now()}] [UDP] [{addr[0]}:{addr[1]}] {log_line}")
+    except KeyboardInterrupt:
+        print("\n[*] UDP Listener stopped.")
+    finally:
+        server.close()
+
+
+def start_both(host, port):
+    tcp_thread = threading.Thread(target=start_tcp_listener, args=(host, port), daemon=True)
+    udp_thread = threading.Thread(target=start_udp_listener, args=(host, port), daemon=True)
+    tcp_thread.start()
+    udp_thread.start()
+    print(f"[*] Listening on both TCP and UDP on {host}:{port}")
+    try:
+        tcp_thread.join()
+        udp_thread.join()
+    except KeyboardInterrupt:
+        print("\n[*] Shutting down listeners.")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Simple Local Log Receiver")
+    parser.add_argument("--host", default="0.0.0.0", help="Host to listen on (default: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=5140, help="Port to listen on (default: 5140)")
+    parser.add_argument("--proto", choices=["tcp", "udp", "both"], default="both", help="Protocol (default: both)")
+    args = parser.parse_args()
+
+    print(f"{'='*50}")
+    print(f"  Local Log Receiver")
+    print(f"  Host : {args.host}")
+    print(f"  Port : {args.port}")
+    print(f"  Proto: {args.proto.upper()}")
+    print(f"{'='*50}")
+
+    if args.proto == "tcp":
+        start_tcp_listener(args.host, args.port)
+    elif args.proto == "udp":
+        start_udp_listener(args.host, args.port)
+    else:
+        start_both(args.host, args.port)
+
